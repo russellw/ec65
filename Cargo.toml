@@ -16,3 +16,8 @@ name = "mos6502_emulator"
 path = "src/main.rs"
 
 [dependencies]
+tokio = { version = "1.0", features = ["full"] }
+warp = "0.3"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+uuid = { version = "1.0", features = ["v4"] }

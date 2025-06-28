@@ -1,10 +1,26 @@
 pub mod cpu;
 pub mod memory;
+pub mod server;
 
-use cpu::CPU;
-use memory::Memory;
+use std::env;
 
-fn main() {
+#[tokio::main]
+async fn main() {
+    let args: Vec<String> = env::args().collect();
+    
+    if args.len() > 1 && args[1] == "--server" {
+        // Run as server
+        server::run_server().await;
+    } else {
+        // Run example program
+        run_example().await;
+    }
+}
+
+async fn run_example() {
+    use cpu::CPU;
+    use memory::Memory;
+    
     let mut memory = Memory::new();
     let mut cpu = CPU::new();
     
@@ -34,4 +50,6 @@ fn main() {
     println!("PC: ${:04X}", cpu.get_pc());
     println!("SP: ${:02X}", cpu.get_sp());
     println!("Status: ${:02X}", cpu.get_status());
+    
+    println!("\nTo run as server: cargo run -- --server");
 }

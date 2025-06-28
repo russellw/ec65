@@ -40,6 +40,7 @@
 
 pub mod cpu;
 pub mod memory;
+pub mod server;
 
 pub use cpu::CPU;
 pub use memory::Memory;
