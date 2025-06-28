@@ -42,6 +42,9 @@ pub mod cpu;
 pub mod memory;
 pub mod server;
 pub mod metrics;
+pub mod auth;
+pub mod instance_types;
+pub mod snapshots;
 
 pub use cpu::CPU;
 pub use memory::Memory;

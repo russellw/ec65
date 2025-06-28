@@ -2,6 +2,9 @@ pub mod cpu;
 pub mod memory;
 pub mod server;
 pub mod metrics;
+pub mod auth;
+pub mod instance_types;
+pub mod snapshots;
 
 use std::env;
 

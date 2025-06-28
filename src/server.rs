@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
-use warp::Filter;
+use warp::{Filter, reject};
 use prometheus::Encoder;
 
 use crate::cpu::CPU;
@@ -10,6 +10,19 @@ use crate::memory::Memory;
 use crate::metrics::{
     init_metrics, record_api_request, set_active_emulators, update_cpu_registers,
     record_memory_operation, record_emulator_reset, record_program_load, Timer, REGISTRY
+};
+use crate::auth::{
+    User, UserStore, init_default_users, with_auth, with_permission, Permission,
+    LoginRequest, CreateUserRequest, CreateApiKeyRequest, AuthResponse, UserInfo,
+    ApiKeyResponse, create_jwt_token, AuthError,
+};
+use crate::instance_types::{
+    EmulatorType, EmulatorInstance, InstanceTemplate, CreateInstanceRequest,
+    InstanceState, UsageStats,
+};
+use crate::snapshots::{
+    EmulatorSnapshot, SnapshotStore, CreateSnapshotRequest, RestoreSnapshotRequest,
+    SnapshotListResponse, CheckpointReason,
 };
 
 #[derive(Debug, Clone, Serialize)]
@@ -95,15 +108,31 @@ pub struct Emulator {
     pub cpu: CPU,
     pub memory: Memory,
     pub cycles: u64,
+    pub instance: EmulatorInstance,
+    pub last_cycle_time: std::time::Instant,
 }
 
 impl Emulator {
-    pub fn new() -> Self {
+    pub fn new_with_instance(instance: EmulatorInstance) -> Self {
         Self {
             cpu: CPU::new(),
             memory: Memory::new(),
             cycles: 0,
+            instance,
+            last_cycle_time: std::time::Instant::now(),
         }
+    }
+    
+    pub fn new() -> Self {
+        // Default instance for backward compatibility
+        let default_instance = EmulatorInstance::new(
+            "system".to_string(),
+            EmulatorType::Standard,
+            Some("default".to_string()),
+            None,
+            None,
+        );
+        Self::new_with_instance(default_instance)
     }
     
     pub fn get_state(&self) -> CpuState {
@@ -177,7 +206,19 @@ pub async fn run_server() {
     // Initialize Prometheus metrics
     init_metrics();
     
+    // Initialize stores
     let emulators: EmulatorMap = Arc::new(Mutex::new(HashMap::new()));
+    let users: UserStore = Arc::new(Mutex::new(HashMap::new()));
+    let snapshots: SnapshotStore = Arc::new(Mutex::new(HashMap::new()));
+    let templates: Arc<Mutex<HashMap<String, InstanceTemplate>>> = 
+        Arc::new(Mutex::new(HashMap::new()));
+    
+    // Initialize default users and templates
+    init_default_users(users.clone());
+    init_default_templates(templates.clone());
+    
+    println!("=== 6502 Cloud Computing Platform ===");
+    println!("Enterprise-grade 6502 emulation service starting...");
     
     // CORS
     let cors = warp::cors()
@@ -508,4 +549,15 @@ async fn metrics_handler() -> Result<impl warp::Reply, warp::Rejection> {
             ))
         }
     }
+}
+
+fn init_default_templates(templates: Arc<Mutex<HashMap<String, InstanceTemplate>>>) {
+    let mut templates_lock = templates.lock().unwrap();
+    let default_templates = InstanceTemplate::create_basic_templates();
+    
+    for template in default_templates {
+        templates_lock.insert(template.id.clone(), template);
+    }
+    
+    println!("Initialized {} default instance templates", templates_lock.len());
 }

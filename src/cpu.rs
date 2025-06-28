@@ -3,17 +3,17 @@ use crate::metrics::{record_instruction, get_instruction_name, Timer};
 
 #[derive(Debug)]
 pub struct CPU {
-    // Registers
-    a: u8,      // Accumulator
-    x: u8,      // X Index Register
-    y: u8,      // Y Index Register
-    pc: u16,    // Program Counter
-    sp: u8,     // Stack Pointer
-    status: u8, // Status Register
+    // Registers (made public for snapshot support)
+    pub a: u8,      // Accumulator
+    pub x: u8,      // X Index Register
+    pub y: u8,      // Y Index Register
+    pub pc: u16,    // Program Counter
+    pub sp: u8,     // Stack Pointer
+    pub status: u8, // Status Register
     
     // Internal state
-    cycles: u64,
-    halted: bool,
+    pub cycles: u64,
+    pub halted: bool,
 }
 
 // Status register flags
