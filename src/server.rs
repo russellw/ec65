@@ -438,7 +438,8 @@ pub async fn run_server() {
         .and(with_snapshots(snapshots.clone()))
         .and_then(delete_snapshot_handler);
     
-    let routes = create_emulator
+    // Group routes by functionality to reduce filter nesting
+    let basic_routes = create_emulator
         .or(get_state)
         .or(reset_emulator)
         .or(step_emulator)
@@ -448,28 +449,34 @@ pub async fn run_server() {
         .or(write_memory)
         .or(list_emulators)
         .or(delete_emulator)
-        .or(metrics)
-        // Enterprise authentication routes
-        .or(login)
+        .or(metrics);
+        
+    let auth_routes = login
         .or(register)
-        .or(user_info)
-        // Enterprise API key routes
-        .or(create_api_key)
+        .or(user_info);
+        
+    let api_key_routes = create_api_key
         .or(list_api_keys)
-        .or(delete_api_key)
-        // Enterprise instance routes
-        .or(create_instance)
+        .or(delete_api_key);
+        
+    let instance_routes = create_instance
         .or(list_instances)
         .or(get_instance)
         .or(start_instance)
         .or(stop_instance)
-        .or(pause_instance)
-        // Enterprise snapshot routes
-        .or(create_snapshot)
+        .or(pause_instance);
+        
+    let snapshot_routes = create_snapshot
         .or(list_snapshots)
         .or(get_snapshot)
         .or(restore_snapshot)
-        .or(delete_snapshot)
+        .or(delete_snapshot);
+    
+    let routes = basic_routes
+        .or(auth_routes)
+        .or(api_key_routes)
+        .or(instance_routes)
+        .or(snapshot_routes)
         .with(cors);
     
     println!("6502 Emulator Server starting on http://localhost:3030");
