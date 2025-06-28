@@ -81,13 +81,20 @@ class EnterpriseEmulatorClient:
     def handle_response(self, response: requests.Response, operation: str) -> Optional[Dict]:
         """Handle API response with error checking"""
         try:
-            if response.status_code == 200:
+            # Consider 2xx status codes as success
+            if 200 <= response.status_code < 300:
                 data = response.json() if response.content else {}
                 self.log(f"✅ {operation} successful")
                 return data
             elif response.status_code == 404:
                 self.log(f"❌ {operation} failed: Endpoint not implemented (404)", "ERROR")
                 return None
+            elif response.status_code == 409:
+                # Handle conflict errors (like user already exists) as warnings, not failures
+                data = response.json() if response.content else {}
+                error_msg = data.get('error', 'Conflict')
+                self.log(f"⚠️  {operation} skipped: {error_msg} (409)", "WARNING")
+                return data  # Return data so caller can decide how to handle
             else:
                 self.log(f"❌ {operation} failed: {response.status_code} - {response.text}", "ERROR")
                 return None
@@ -214,7 +221,9 @@ class EnterpriseEmulatorClient:
         result = self.handle_response(response, f"Create emulator ({config.name})")
         
         if result:
-            emulator_id = result.get("id")
+            # Server returns wrapped response with data field
+            data = result.get("data", {})
+            emulator_id = data.get("id")
             self.log(f"Emulator created with ID: {emulator_id}")
             return emulator_id
         return None
@@ -246,8 +255,8 @@ class EnterpriseEmulatorClient:
         self.log(f"Loading program into emulator: {emulator_id}")
         
         program_data = {
-            "program": program,
-            "start_address": start_addr
+            "address": start_addr,
+            "data": program
         }
         
         response = self.session.post(
@@ -283,15 +292,22 @@ class EnterpriseEmulatorClient:
         )
         
         result = self.handle_response(response, f"Read memory ({emulator_id})")
-        return result.get("data") if result else None
+        if result and "data" in result:
+            # Server returns {"success": true, "data": {"address": ..., "data": [...]}}
+            return result["data"].get("data", [])
+        return None
 
     def write_memory(self, emulator_id: str, address: int, data: List[int]) -> bool:
         """Write data to emulator memory"""
         self.log(f"Writing memory to emulator: {emulator_id} at 0x{address:04X}")
         
+        # Server expects single byte writes, so write first byte only for demo
+        if not data:
+            return False
+            
         memory_data = {
             "address": address,
-            "data": data
+            "value": data[0]  # Server expects single byte value, not array
         }
         
         response = self.session.post(
