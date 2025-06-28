@@ -38,6 +38,8 @@
 //! assert_eq!(cpu.get_register_a(), 0x42);
 //! ```
 
+#![recursion_limit = "512"]
+
 pub mod cpu;
 pub mod memory;
 pub mod server;
