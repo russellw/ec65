@@ -335,7 +335,13 @@ mod tests {
     
     #[test]
     fn test_rle_escape() {
-        let memory = vec![0xFF, 0xFF, 0xAA, 0xFF, 0x00];
+        let mut memory = vec![0x00; 65536];
+        memory[0] = 0xFF;
+        memory[1] = 0xFF;
+        memory[2] = 0xAA;
+        memory[3] = 0xFF;
+        memory[4] = 0x00;
+        
         let compressed = compress_memory(&memory);
         let decompressed = decompress_memory(&compressed).unwrap();
         
