@@ -1,6 +1,18 @@
 [package]
 name = "mos6502_emulator"
 version = "0.1.0"
-edition = "2024"
+edition = "2021"
+authors = ["Claude Code Assistant"]
+description = "A complete MOS 6502 CPU emulator written in Rust"
+keywords = ["6502", "emulator", "cpu", "retro", "computing"]
+categories = ["emulators", "hardware-support"]
+
+[lib]
+name = "mos6502_emulator"
+path = "src/lib.rs"
+
+[[bin]]
+name = "mos6502_emulator"
+path = "src/main.rs"
 
 [dependencies]

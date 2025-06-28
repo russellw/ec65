@@ -16,14 +16,14 @@ pub struct CPU {
 }
 
 // Status register flags
-const CARRY_FLAG: u8 = 0x01;
-const ZERO_FLAG: u8 = 0x02;
-const INTERRUPT_DISABLE: u8 = 0x04;
-const DECIMAL_MODE: u8 = 0x08;
-const BREAK_COMMAND: u8 = 0x10;
-const UNUSED_FLAG: u8 = 0x20;
-const OVERFLOW_FLAG: u8 = 0x40;
-const NEGATIVE_FLAG: u8 = 0x80;
+pub const CARRY_FLAG: u8 = 0x01;
+pub const ZERO_FLAG: u8 = 0x02;
+pub const INTERRUPT_DISABLE: u8 = 0x04;
+pub const DECIMAL_MODE: u8 = 0x08;
+pub const BREAK_COMMAND: u8 = 0x10;
+pub const UNUSED_FLAG: u8 = 0x20;
+pub const OVERFLOW_FLAG: u8 = 0x40;
+pub const NEGATIVE_FLAG: u8 = 0x80;
 
 #[derive(Debug, Clone, Copy)]
 pub enum AddressingMode {
@@ -258,7 +258,7 @@ impl CPU {
     pub fn is_halted(&self) -> bool { self.halted }
     
     // Flag operations
-    fn set_flag(&mut self, flag: u8, value: bool) {
+    pub fn set_flag(&mut self, flag: u8, value: bool) {
         if value {
             self.status |= flag;
         } else {
@@ -266,7 +266,7 @@ impl CPU {
         }
     }
     
-    fn get_flag(&self, flag: u8) -> bool {
+    pub fn get_flag(&self, flag: u8) -> bool {
         (self.status & flag) != 0
     }
     
@@ -1036,12 +1036,12 @@ impl CPU {
     }
     
     // Stack operations
-    fn push(&mut self, memory: &mut Memory, value: u8) {
+    pub fn push(&mut self, memory: &mut Memory, value: u8) {
         memory.write(0x100 + self.sp as u16, value);
         self.sp = self.sp.wrapping_sub(1);
     }
     
-    fn pop(&mut self, memory: &Memory) -> u8 {
+    pub fn pop(&mut self, memory: &Memory) -> u8 {
         self.sp = self.sp.wrapping_add(1);
         memory.read(0x100 + self.sp as u16)
     }
@@ -1126,5 +1126,682 @@ mod tests {
         assert_eq!(cpu.get_register_a(), 0x42);
         assert_eq!(cpu.get_register_x(), 0x42);
         assert_eq!(cpu.get_register_y(), 0x42);
+    }
+    
+    #[test]
+    fn test_adc_carry_flag() {
+        let mut cpu = CPU::new();
+        let mut memory = Memory::new();
+        
+        // LDA #$FF, ADC #$02 (should set carry)
+        memory.write(0x8000, 0xA9); // LDA #$FF
+        memory.write(0x8001, 0xFF);
+        memory.write(0x8002, 0x69); // ADC #$02
+        memory.write(0x8003, 0x02);
+        memory.write(0xFFFC, 0x00);
+        memory.write(0xFFFD, 0x80);
+        
+        cpu.reset(&mut memory);
+        cpu.step(&mut memory); // LDA
+        cpu.step(&mut memory); // ADC
+        
+        assert_eq!(cpu.get_register_a(), 0x01);
+        assert!(cpu.get_flag(CARRY_FLAG));
+        assert!(!cpu.get_flag(ZERO_FLAG));
+        assert!(!cpu.get_flag(NEGATIVE_FLAG));
+    }
+    
+    #[test]
+    fn test_adc_overflow_flag() {
+        let mut cpu = CPU::new();
+        let mut memory = Memory::new();
+        
+        // LDA #$7F, ADC #$01 (should set overflow)
+        memory.write(0x8000, 0xA9); // LDA #$7F
+        memory.write(0x8001, 0x7F);
+        memory.write(0x8002, 0x69); // ADC #$01
+        memory.write(0x8003, 0x01);
+        memory.write(0xFFFC, 0x00);
+        memory.write(0xFFFD, 0x80);
+        
+        cpu.reset(&mut memory);
+        cpu.step(&mut memory); // LDA
+        cpu.step(&mut memory); // ADC
+        
+        assert_eq!(cpu.get_register_a(), 0x80);
+        assert!(!cpu.get_flag(CARRY_FLAG));
+        assert!(cpu.get_flag(OVERFLOW_FLAG));
+        assert!(cpu.get_flag(NEGATIVE_FLAG));
+    }
+    
+    #[test]
+    fn test_sbc_basic() {
+        let mut cpu = CPU::new();
+        let mut memory = Memory::new();
+        
+        // Set carry flag first, LDA #$50, SBC #$20
+        memory.write(0x8000, 0x38); // SEC (set carry)
+        memory.write(0x8001, 0xA9); // LDA #$50
+        memory.write(0x8002, 0x50);
+        memory.write(0x8003, 0xE9); // SBC #$20
+        memory.write(0x8004, 0x20);
+        memory.write(0xFFFC, 0x00);
+        memory.write(0xFFFD, 0x80);
+        
+        cpu.reset(&mut memory);
+        cpu.set_flag(CARRY_FLAG, true); // Set carry manually for test
+        cpu.pc = 0x8001; // Skip SEC instruction for simplicity
+        cpu.step(&mut memory); // LDA
+        cpu.step(&mut memory); // SBC
+        
+        assert_eq!(cpu.get_register_a(), 0x30);
+        assert!(cpu.get_flag(CARRY_FLAG));
+        assert!(!cpu.get_flag(ZERO_FLAG));
+        assert!(!cpu.get_flag(NEGATIVE_FLAG));
+    }
+    
+    #[test]
+    fn test_sbc_borrow() {
+        let mut cpu = CPU::new();
+        let mut memory = Memory::new();
+        
+        // LDA #$20, SBC #$30 (with carry clear, should borrow)
+        memory.write(0x8000, 0xA9); // LDA #$20
+        memory.write(0x8001, 0x20);
+        memory.write(0x8002, 0xE9); // SBC #$30
+        memory.write(0x8003, 0x30);
+        memory.write(0xFFFC, 0x00);
+        memory.write(0xFFFD, 0x80);
+        
+        cpu.reset(&mut memory);
+        cpu.step(&mut memory); // LDA
+        cpu.step(&mut memory); // SBC
+        
+        assert_eq!(cpu.get_register_a(), 0xEF); // 0x20 - 0x30 - 1 = 0xEF
+        assert!(!cpu.get_flag(CARRY_FLAG));
+        assert!(cpu.get_flag(NEGATIVE_FLAG));
+    }
+    
+    #[test]
+    fn test_and_logical() {
+        let mut cpu = CPU::new();
+        let mut memory = Memory::new();
+        
+        // LDA #$F0, AND #$0F
+        memory.write(0x8000, 0xA9); // LDA #$F0
+        memory.write(0x8001, 0xF0);
+        memory.write(0x8002, 0x29); // AND #$0F
+        memory.write(0x8003, 0x0F);
+        memory.write(0xFFFC, 0x00);
+        memory.write(0xFFFD, 0x80);
+        
+        cpu.reset(&mut memory);
+        cpu.step(&mut memory); // LDA
+        cpu.step(&mut memory); // AND
+        
+        assert_eq!(cpu.get_register_a(), 0x00);
+        assert!(cpu.get_flag(ZERO_FLAG));
+        assert!(!cpu.get_flag(NEGATIVE_FLAG));
+    }
+    
+    #[test]
+    fn test_ora_logical() {
+        let mut cpu = CPU::new();
+        let mut memory = Memory::new();
+        
+        // LDA #$F0, ORA #$0F
+        memory.write(0x8000, 0xA9); // LDA #$F0
+        memory.write(0x8001, 0xF0);
+        memory.write(0x8002, 0x09); // ORA #$0F
+        memory.write(0x8003, 0x0F);
+        memory.write(0xFFFC, 0x00);
+        memory.write(0xFFFD, 0x80);
+        
+        cpu.reset(&mut memory);
+        cpu.step(&mut memory); // LDA
+        cpu.step(&mut memory); // ORA
+        
+        assert_eq!(cpu.get_register_a(), 0xFF);
+        assert!(!cpu.get_flag(ZERO_FLAG));
+        assert!(cpu.get_flag(NEGATIVE_FLAG));
+    }
+    
+    #[test]
+    fn test_eor_logical() {
+        let mut cpu = CPU::new();
+        let mut memory = Memory::new();
+        
+        // LDA #$FF, EOR #$FF
+        memory.write(0x8000, 0xA9); // LDA #$FF
+        memory.write(0x8001, 0xFF);
+        memory.write(0x8002, 0x49); // EOR #$FF
+        memory.write(0x8003, 0xFF);
+        memory.write(0xFFFC, 0x00);
+        memory.write(0xFFFD, 0x80);
+        
+        cpu.reset(&mut memory);
+        cpu.step(&mut memory); // LDA
+        cpu.step(&mut memory); // EOR
+        
+        assert_eq!(cpu.get_register_a(), 0x00);
+        assert!(cpu.get_flag(ZERO_FLAG));
+        assert!(!cpu.get_flag(NEGATIVE_FLAG));
+    }
+    
+    #[test]
+    fn test_cmp_equal() {
+        let mut cpu = CPU::new();
+        let mut memory = Memory::new();
+        
+        // LDA #$42, CMP #$42
+        memory.write(0x8000, 0xA9); // LDA #$42
+        memory.write(0x8001, 0x42);
+        memory.write(0x8002, 0xC9); // CMP #$42
+        memory.write(0x8003, 0x42);
+        memory.write(0xFFFC, 0x00);
+        memory.write(0xFFFD, 0x80);
+        
+        cpu.reset(&mut memory);
+        cpu.step(&mut memory); // LDA
+        cpu.step(&mut memory); // CMP
+        
+        assert_eq!(cpu.get_register_a(), 0x42); // A unchanged
+        assert!(cpu.get_flag(ZERO_FLAG)); // Equal
+        assert!(cpu.get_flag(CARRY_FLAG)); // A >= operand
+        assert!(!cpu.get_flag(NEGATIVE_FLAG));
+    }
+    
+    #[test]
+    fn test_cmp_greater() {
+        let mut cpu = CPU::new();
+        let mut memory = Memory::new();
+        
+        // LDA #$50, CMP #$30
+        memory.write(0x8000, 0xA9); // LDA #$50
+        memory.write(0x8001, 0x50);
+        memory.write(0x8002, 0xC9); // CMP #$30
+        memory.write(0x8003, 0x30);
+        memory.write(0xFFFC, 0x00);
+        memory.write(0xFFFD, 0x80);
+        
+        cpu.reset(&mut memory);
+        cpu.step(&mut memory); // LDA
+        cpu.step(&mut memory); // CMP
+        
+        assert_eq!(cpu.get_register_a(), 0x50); // A unchanged
+        assert!(!cpu.get_flag(ZERO_FLAG)); // Not equal
+        assert!(cpu.get_flag(CARRY_FLAG)); // A >= operand
+        assert!(!cpu.get_flag(NEGATIVE_FLAG)); // Result positive
+    }
+    
+    #[test]
+    fn test_cmp_less() {
+        let mut cpu = CPU::new();
+        let mut memory = Memory::new();
+        
+        // LDA #$30, CMP #$50
+        memory.write(0x8000, 0xA9); // LDA #$30
+        memory.write(0x8001, 0x30);
+        memory.write(0x8002, 0xC9); // CMP #$50
+        memory.write(0x8003, 0x50);
+        memory.write(0xFFFC, 0x00);
+        memory.write(0xFFFD, 0x80);
+        
+        cpu.reset(&mut memory);
+        cpu.step(&mut memory); // LDA
+        cpu.step(&mut memory); // CMP
+        
+        assert_eq!(cpu.get_register_a(), 0x30); // A unchanged
+        assert!(!cpu.get_flag(ZERO_FLAG)); // Not equal
+        assert!(!cpu.get_flag(CARRY_FLAG)); // A < operand
+        assert!(cpu.get_flag(NEGATIVE_FLAG)); // Result negative
+    }
+    
+    #[test]
+    fn test_inx_dex() {
+        let mut cpu = CPU::new();
+        let mut memory = Memory::new();
+        
+        // LDX #$FE, INX, INX, DEX
+        memory.write(0x8000, 0xA2); // LDX #$FE
+        memory.write(0x8001, 0xFE);
+        memory.write(0x8002, 0xE8); // INX
+        memory.write(0x8003, 0xE8); // INX (should wrap to 0)
+        memory.write(0x8004, 0xCA); // DEX
+        memory.write(0xFFFC, 0x00);
+        memory.write(0xFFFD, 0x80);
+        
+        cpu.reset(&mut memory);
+        cpu.step(&mut memory); // LDX
+        assert_eq!(cpu.get_register_x(), 0xFE);
+        
+        cpu.step(&mut memory); // INX
+        assert_eq!(cpu.get_register_x(), 0xFF);
+        assert!(cpu.get_flag(NEGATIVE_FLAG));
+        
+        cpu.step(&mut memory); // INX (wrap)
+        assert_eq!(cpu.get_register_x(), 0x00);
+        assert!(cpu.get_flag(ZERO_FLAG));
+        
+        cpu.step(&mut memory); // DEX
+        assert_eq!(cpu.get_register_x(), 0xFF);
+        assert!(cpu.get_flag(NEGATIVE_FLAG));
+    }
+    
+    #[test]
+    fn test_inc_memory_zero_page() {
+        let mut cpu = CPU::new();
+        let mut memory = Memory::new();
+        
+        memory.write(0x50, 0xFE); // Store $FE at zero page $50
+        
+        // INC $50, INC $50
+        memory.write(0x8000, 0xE6); // INC $50
+        memory.write(0x8001, 0x50);
+        memory.write(0x8002, 0xE6); // INC $50 (should wrap)
+        memory.write(0x8003, 0x50);
+        memory.write(0xFFFC, 0x00);
+        memory.write(0xFFFD, 0x80);
+        
+        cpu.reset(&mut memory);
+        cpu.step(&mut memory); // INC
+        assert_eq!(memory.read(0x50), 0xFF);
+        assert!(cpu.get_flag(NEGATIVE_FLAG));
+        
+        cpu.step(&mut memory); // INC (wrap)
+        assert_eq!(memory.read(0x50), 0x00);
+        assert!(cpu.get_flag(ZERO_FLAG));
+    }
+    
+    #[test]
+    fn test_jmp_absolute() {
+        let mut cpu = CPU::new();
+        let mut memory = Memory::new();
+        
+        // JMP $9000
+        memory.write(0x8000, 0x4C); // JMP absolute
+        memory.write(0x8001, 0x00); // Low byte
+        memory.write(0x8002, 0x90); // High byte
+        memory.write(0xFFFC, 0x00);
+        memory.write(0xFFFD, 0x80);
+        
+        cpu.reset(&mut memory);
+        cpu.step(&mut memory); // JMP
+        
+        assert_eq!(cpu.get_pc(), 0x9000);
+    }
+    
+    #[test]
+    fn test_jsr_rts() {
+        let mut cpu = CPU::new();
+        let mut memory = Memory::new();
+        
+        // JSR $9000, ..., RTS at $9000
+        memory.write(0x8000, 0x20); // JSR
+        memory.write(0x8001, 0x00); // Low byte
+        memory.write(0x8002, 0x90); // High byte
+        memory.write(0x8003, 0xEA); // NOP (should return here)
+        
+        memory.write(0x9000, 0x60); // RTS at subroutine
+        
+        memory.write(0xFFFC, 0x00);
+        memory.write(0xFFFD, 0x80);
+        
+        cpu.reset(&mut memory);
+        let initial_sp = cpu.get_sp();
+        
+        cpu.step(&mut memory); // JSR
+        assert_eq!(cpu.get_pc(), 0x9000);
+        assert_eq!(cpu.get_sp(), initial_sp - 2); // Stack pointer decremented
+        
+        cpu.step(&mut memory); // RTS
+        assert_eq!(cpu.get_pc(), 0x8003); // Return to instruction after JSR
+        assert_eq!(cpu.get_sp(), initial_sp); // Stack pointer restored
+    }
+    
+    #[test]
+    fn test_zero_page_x_addressing() {
+        let mut cpu = CPU::new();
+        let mut memory = Memory::new();
+        
+        memory.write(0x55, 0x42); // Store value at $55
+        
+        // LDX #$05, LDA $50,X (should read from $55)
+        memory.write(0x8000, 0xA2); // LDX #$05
+        memory.write(0x8001, 0x05);
+        memory.write(0x8002, 0xB5); // LDA $50,X
+        memory.write(0x8003, 0x50);
+        memory.write(0xFFFC, 0x00);
+        memory.write(0xFFFD, 0x80);
+        
+        cpu.reset(&mut memory);
+        cpu.step(&mut memory); // LDX
+        cpu.step(&mut memory); // LDA
+        
+        assert_eq!(cpu.get_register_a(), 0x42);
+        assert_eq!(cpu.get_register_x(), 0x05);
+    }
+    
+    #[test]
+    fn test_absolute_x_addressing() {
+        let mut cpu = CPU::new();
+        let mut memory = Memory::new();
+        
+        memory.write(0x3005, 0x42); // Store value at $3005
+        
+        // LDX #$05, LDA $3000,X (should read from $3005)
+        memory.write(0x8000, 0xA2); // LDX #$05
+        memory.write(0x8001, 0x05);
+        memory.write(0x8002, 0xBD); // LDA $3000,X
+        memory.write(0x8003, 0x00); // Low byte
+        memory.write(0x8004, 0x30); // High byte
+        memory.write(0xFFFC, 0x00);
+        memory.write(0xFFFD, 0x80);
+        
+        cpu.reset(&mut memory);
+        cpu.step(&mut memory); // LDX
+        cpu.step(&mut memory); // LDA
+        
+        assert_eq!(cpu.get_register_a(), 0x42);
+        assert_eq!(cpu.get_register_x(), 0x05);
+    }
+    
+    #[test]
+    fn test_stack_operations() {
+        let mut cpu = CPU::new();
+        let mut memory = Memory::new();
+        
+        let initial_sp = cpu.get_sp();
+        
+        // Test manual stack operations
+        cpu.push(&mut memory, 0x42);
+        assert_eq!(cpu.get_sp(), initial_sp - 1);
+        
+        cpu.push(&mut memory, 0x43);
+        assert_eq!(cpu.get_sp(), initial_sp - 2);
+        
+        let value2 = cpu.pop(&memory);
+        assert_eq!(value2, 0x43);
+        assert_eq!(cpu.get_sp(), initial_sp - 1);
+        
+        let value1 = cpu.pop(&memory);
+        assert_eq!(value1, 0x42);
+        assert_eq!(cpu.get_sp(), initial_sp);
+    }
+    
+    #[test]
+    fn test_flags_zero_and_negative() {
+        let mut cpu = CPU::new();
+        let mut memory = Memory::new();
+        
+        // Test zero flag
+        memory.write(0x8000, 0xA9); // LDA #$00
+        memory.write(0x8001, 0x00);
+        memory.write(0xFFFC, 0x00);
+        memory.write(0xFFFD, 0x80);
+        
+        cpu.reset(&mut memory);
+        cpu.step(&mut memory);
+        
+        assert_eq!(cpu.get_register_a(), 0x00);
+        assert!(cpu.get_flag(ZERO_FLAG));
+        assert!(!cpu.get_flag(NEGATIVE_FLAG));
+        
+        // Test negative flag
+        cpu.pc = 0x8000; // Reset PC
+        memory.write(0x8000, 0xA9); // LDA #$80
+        memory.write(0x8001, 0x80);
+        
+        cpu.step(&mut memory);
+        
+        assert_eq!(cpu.get_register_a(), 0x80);
+        assert!(!cpu.get_flag(ZERO_FLAG));
+        assert!(cpu.get_flag(NEGATIVE_FLAG));
+    }
+    
+    #[test]
+    fn test_cpx_cpy() {
+        let mut cpu = CPU::new();
+        let mut memory = Memory::new();
+        
+        // LDX #$42, LDY #$42, CPX #$42, CPY #$42
+        memory.write(0x8000, 0xA2); // LDX #$42
+        memory.write(0x8001, 0x42);
+        memory.write(0x8002, 0xA0); // LDY #$42
+        memory.write(0x8003, 0x42);
+        memory.write(0x8004, 0xE0); // CPX #$42
+        memory.write(0x8005, 0x42);
+        memory.write(0x8006, 0xC0); // CPY #$42
+        memory.write(0x8007, 0x42);
+        memory.write(0xFFFC, 0x00);
+        memory.write(0xFFFD, 0x80);
+        
+        cpu.reset(&mut memory);
+        cpu.step(&mut memory); // LDX
+        cpu.step(&mut memory); // LDY
+        cpu.step(&mut memory); // CPX
+        
+        assert_eq!(cpu.get_register_x(), 0x42); // X unchanged
+        assert!(cpu.get_flag(ZERO_FLAG)); // Equal
+        assert!(cpu.get_flag(CARRY_FLAG)); // X >= operand
+        
+        cpu.step(&mut memory); // CPY
+        
+        assert_eq!(cpu.get_register_y(), 0x42); // Y unchanged
+        assert!(cpu.get_flag(ZERO_FLAG)); // Equal
+        assert!(cpu.get_flag(CARRY_FLAG)); // Y >= operand
+    }
+    
+    #[test]
+    fn test_iny_dey() {
+        let mut cpu = CPU::new();
+        let mut memory = Memory::new();
+        
+        // LDY #$00, DEY (underflow), INY, INY
+        memory.write(0x8000, 0xA0); // LDY #$00
+        memory.write(0x8001, 0x00);
+        memory.write(0x8002, 0x88); // DEY (should wrap to $FF)
+        memory.write(0x8003, 0xC8); // INY
+        memory.write(0x8004, 0xC8); // INY (should be $01)
+        memory.write(0xFFFC, 0x00);
+        memory.write(0xFFFD, 0x80);
+        
+        cpu.reset(&mut memory);
+        cpu.step(&mut memory); // LDY
+        assert_eq!(cpu.get_register_y(), 0x00);
+        assert!(cpu.get_flag(ZERO_FLAG));
+        
+        cpu.step(&mut memory); // DEY (underflow)
+        assert_eq!(cpu.get_register_y(), 0xFF);
+        assert!(cpu.get_flag(NEGATIVE_FLAG));
+        assert!(!cpu.get_flag(ZERO_FLAG));
+        
+        cpu.step(&mut memory); // INY
+        assert_eq!(cpu.get_register_y(), 0x00);
+        assert!(cpu.get_flag(ZERO_FLAG));
+        assert!(!cpu.get_flag(NEGATIVE_FLAG));
+        
+        cpu.step(&mut memory); // INY
+        assert_eq!(cpu.get_register_y(), 0x01);
+        assert!(!cpu.get_flag(ZERO_FLAG));
+        assert!(!cpu.get_flag(NEGATIVE_FLAG));
+    }
+    
+    #[test]
+    fn test_dec_memory_absolute() {
+        let mut cpu = CPU::new();
+        let mut memory = Memory::new();
+        
+        memory.write(0x3000, 0x01); // Store $01 at $3000
+        
+        // DEC $3000, DEC $3000
+        memory.write(0x8000, 0xCE); // DEC $3000
+        memory.write(0x8001, 0x00); // Low byte
+        memory.write(0x8002, 0x30); // High byte
+        memory.write(0x8003, 0xCE); // DEC $3000 (should wrap)
+        memory.write(0x8004, 0x00); // Low byte
+        memory.write(0x8005, 0x30); // High byte
+        memory.write(0xFFFC, 0x00);
+        memory.write(0xFFFD, 0x80);
+        
+        cpu.reset(&mut memory);
+        cpu.step(&mut memory); // DEC
+        assert_eq!(memory.read(0x3000), 0x00);
+        assert!(cpu.get_flag(ZERO_FLAG));
+        
+        cpu.step(&mut memory); // DEC (wrap)
+        assert_eq!(memory.read(0x3000), 0xFF);
+        assert!(cpu.get_flag(NEGATIVE_FLAG));
+    }
+    
+    #[test]
+    fn test_jmp_indirect_page_boundary_bug() {
+        let mut cpu = CPU::new();
+        let mut memory = Memory::new();
+        
+        // Set up the 6502 JMP indirect page boundary bug
+        // If the indirect address is at $xxFF, the high byte comes from $xx00
+        memory.write(0x30FF, 0x00); // Low byte of target address
+        memory.write(0x3100, 0x50); // This should be ignored due to bug
+        memory.write(0x3000, 0x40); // High byte actually comes from here
+        
+        // JMP ($30FF)
+        memory.write(0x8000, 0x6C); // JMP indirect
+        memory.write(0x8001, 0xFF); // Low byte of pointer
+        memory.write(0x8002, 0x30); // High byte of pointer
+        memory.write(0xFFFC, 0x00);
+        memory.write(0xFFFD, 0x80);
+        
+        cpu.reset(&mut memory);
+        cpu.step(&mut memory); // JMP
+        
+        // Should jump to $4000 (not $5000) due to the bug
+        assert_eq!(cpu.get_pc(), 0x4000);
+    }
+    
+    #[test]
+    fn test_sta_zero_page_x() {
+        let mut cpu = CPU::new();
+        let mut memory = Memory::new();
+        
+        // LDA #$42, LDX #$05, STA $10,X (should store at $15)
+        memory.write(0x8000, 0xA9); // LDA #$42
+        memory.write(0x8001, 0x42);
+        memory.write(0x8002, 0xA2); // LDX #$05
+        memory.write(0x8003, 0x05);
+        memory.write(0x8004, 0x95); // STA $10,X
+        memory.write(0x8005, 0x10);
+        memory.write(0xFFFC, 0x00);
+        memory.write(0xFFFD, 0x80);
+        
+        cpu.reset(&mut memory);
+        cpu.step(&mut memory); // LDA
+        cpu.step(&mut memory); // LDX
+        cpu.step(&mut memory); // STA
+        
+        assert_eq!(memory.read(0x15), 0x42); // Value stored at $10 + $05 = $15
+        assert_eq!(memory.read(0x10), 0x00); // Original location unchanged
+    }
+    
+    #[test]
+    fn test_indirect_indexed_addressing() {
+        let mut cpu = CPU::new();
+        let mut memory = Memory::new();
+        
+        // Set up indirect address at zero page $20
+        memory.write(0x20, 0x00); // Low byte of target base address
+        memory.write(0x21, 0x30); // High byte of target base address ($3000)
+        memory.write(0x3005, 0x42); // Value at target address + Y offset
+        
+        // LDY #$05, LDA ($20),Y (should read from $3005)
+        memory.write(0x8000, 0xA0); // LDY #$05
+        memory.write(0x8001, 0x05);
+        memory.write(0x8002, 0xB1); // LDA ($20),Y
+        memory.write(0x8003, 0x20);
+        memory.write(0xFFFC, 0x00);
+        memory.write(0xFFFD, 0x80);
+        
+        cpu.reset(&mut memory);
+        cpu.step(&mut memory); // LDY
+        cpu.step(&mut memory); // LDA
+        
+        assert_eq!(cpu.get_register_a(), 0x42);
+        assert_eq!(cpu.get_register_y(), 0x05);
+    }
+    
+    #[test]
+    fn test_indexed_indirect_addressing() {
+        let mut cpu = CPU::new();
+        let mut memory = Memory::new();
+        
+        // Set up indirect addresses
+        memory.write(0x25, 0x00); // Low byte at ($20 + X)
+        memory.write(0x26, 0x30); // High byte at ($20 + X + 1) -> points to $3000
+        memory.write(0x3000, 0x42); // Value at target address
+        
+        // LDX #$05, LDA ($20,X) (should read from address at $25-$26 = $3000)
+        memory.write(0x8000, 0xA2); // LDX #$05
+        memory.write(0x8001, 0x05);
+        memory.write(0x8002, 0xA1); // LDA ($20,X)
+        memory.write(0x8003, 0x20);
+        memory.write(0xFFFC, 0x00);
+        memory.write(0xFFFD, 0x80);
+        
+        cpu.reset(&mut memory);
+        cpu.step(&mut memory); // LDX
+        cpu.step(&mut memory); // LDA
+        
+        assert_eq!(cpu.get_register_a(), 0x42);
+        assert_eq!(cpu.get_register_x(), 0x05);
+    }
+    
+    #[test]
+    fn test_nop_instruction() {
+        let mut cpu = CPU::new();
+        let mut memory = Memory::new();
+        
+        memory.write(0x8000, 0xEA); // NOP
+        memory.write(0xFFFC, 0x00);
+        memory.write(0xFFFD, 0x80);
+        
+        cpu.reset(&mut memory);
+        let initial_a = cpu.get_register_a();
+        let initial_x = cpu.get_register_x();
+        let initial_y = cpu.get_register_y();
+        let initial_status = cpu.get_status();
+        let initial_sp = cpu.get_sp();
+        
+        cpu.step(&mut memory); // NOP
+        
+        // Nothing should change except PC
+        assert_eq!(cpu.get_register_a(), initial_a);
+        assert_eq!(cpu.get_register_x(), initial_x);
+        assert_eq!(cpu.get_register_y(), initial_y);
+        assert_eq!(cpu.get_status(), initial_status);
+        assert_eq!(cpu.get_sp(), initial_sp);
+        assert_eq!(cpu.get_pc(), 0x8001); // PC should advance
+    }
+    
+    #[test]
+    fn test_brk_instruction() {
+        let mut cpu = CPU::new();
+        let mut memory = Memory::new();
+        
+        memory.write(0x8000, 0x00); // BRK
+        memory.write(0x8001, 0xEA); // NOP (should not execute)
+        memory.write(0xFFFC, 0x00);
+        memory.write(0xFFFD, 0x80);
+        
+        cpu.reset(&mut memory);
+        assert!(!cpu.is_halted());
+        
+        cpu.step(&mut memory); // BRK
+        
+        assert!(cpu.is_halted());
+        assert_eq!(cpu.get_pc(), 0x8001); // PC should advance past BRK
+        
+        // Subsequent steps should do nothing
+        cpu.step(&mut memory);
+        assert_eq!(cpu.get_pc(), 0x8001); // PC unchanged when halted
     }
 }
