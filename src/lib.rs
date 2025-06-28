@@ -41,6 +41,7 @@
 pub mod cpu;
 pub mod memory;
 pub mod server;
+pub mod metrics;
 
 pub use cpu::CPU;
 pub use memory::Memory;

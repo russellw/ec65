@@ -1,4 +1,5 @@
 use crate::memory::Memory;
+use crate::metrics::{record_instruction, get_instruction_name, Timer};
 
 #[derive(Debug)]
 pub struct CPU {
@@ -77,6 +78,9 @@ impl CPU {
         
         let opcode = memory.read(self.pc);
         self.pc = self.pc.wrapping_add(1);
+        
+        let timer = Timer::new();
+        let instruction_name = get_instruction_name(opcode);
         
         match opcode {
             // LDA - Load Accumulator
@@ -293,6 +297,9 @@ impl CPU {
         }
         
         self.cycles += 1;
+        
+        // Record metrics for this instruction
+        record_instruction(opcode, instruction_name, timer.elapsed());
     }
     
     // Getters

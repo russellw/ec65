@@ -1,6 +1,7 @@
 pub mod cpu;
 pub mod memory;
 pub mod server;
+pub mod metrics;
 
 use std::env;
 

@@ -3,9 +3,14 @@ use std::sync::{Arc, Mutex};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 use warp::Filter;
+use prometheus::Encoder;
 
 use crate::cpu::CPU;
 use crate::memory::Memory;
+use crate::metrics::{
+    init_metrics, record_api_request, set_active_emulators, update_cpu_registers,
+    record_memory_operation, record_emulator_reset, record_program_load, Timer, REGISTRY
+};
 
 #[derive(Debug, Clone, Serialize)]
 pub struct CpuState {
@@ -159,11 +164,19 @@ impl Emulator {
     pub fn write_memory(&mut self, address: u16, value: u8) {
         self.memory.write(address, value);
     }
+    
+    pub fn get_id(&self) -> String {
+        // For metrics, we'll pass this from the server context
+        "unknown".to_string()
+    }
 }
 
 type EmulatorMap = Arc<Mutex<HashMap<String, Emulator>>>;
 
 pub async fn run_server() {
+    // Initialize Prometheus metrics
+    init_metrics();
+    
     let emulators: EmulatorMap = Arc::new(Mutex::new(HashMap::new()));
     
     // CORS
@@ -238,6 +251,12 @@ pub async fn run_server() {
         .and(with_emulators(emulators.clone()))
         .and_then(delete_emulator_handler);
     
+    // Metrics endpoint
+    let metrics = warp::path("metrics")
+        .and(warp::path::end())
+        .and(warp::get())
+        .and_then(metrics_handler);
+    
     let routes = create_emulator
         .or(get_state)
         .or(reset_emulator)
@@ -248,6 +267,7 @@ pub async fn run_server() {
         .or(write_memory)
         .or(list_emulators)
         .or(delete_emulator)
+        .or(metrics)
         .with(cors);
     
     println!("6502 Emulator Server starting on http://localhost:3030");
@@ -262,6 +282,7 @@ pub async fn run_server() {
     println!("  POST   /emulator/:id/memory   - Write memory");
     println!("  GET    /emulators             - List all emulator instances");
     println!("  DELETE /emulator/:id          - Delete emulator instance");
+    println!("  GET    /metrics               - Prometheus metrics endpoint");
     
     warp::serve(routes)
         .run(([127, 0, 0, 1], 3030))
@@ -273,17 +294,26 @@ fn with_emulators(emulators: EmulatorMap) -> impl Filter<Extract = (EmulatorMap,
 }
 
 async fn create_emulator_handler(emulators: EmulatorMap) -> Result<impl warp::Reply, warp::Rejection> {
+    let timer = Timer::new();
     let id = Uuid::new_v4().to_string();
     let emulator = Emulator::new();
     let state = emulator.get_state();
     
-    emulators.lock().unwrap().insert(id.clone(), emulator);
+    {
+        let mut emulators_lock = emulators.lock().unwrap();
+        emulators_lock.insert(id.clone(), emulator);
+        set_active_emulators(emulators_lock.len());
+    }
+    
+    // Update CPU metrics for the new emulator
+    update_cpu_registers(&id, state.a, state.x, state.y, state.pc, state.sp, state.status);
     
     let response = ApiResponse::success(EmulatorState {
         id,
         cpu: state,
     });
     
+    record_api_request("POST", "/emulator", 200, timer.elapsed());
     Ok(warp::reply::json(&response))
 }
 
@@ -325,14 +355,20 @@ async fn reset_handler(id: String, emulators: EmulatorMap) -> Result<impl warp::
 }
 
 async fn step_handler(id: String, emulators: EmulatorMap) -> Result<impl warp::Reply, warp::Rejection> {
+    let timer = Timer::new();
     let mut emulators_lock = emulators.lock().unwrap();
     
-    match emulators_lock.get_mut(&id) {
+    let result = match emulators_lock.get_mut(&id) {
         Some(emulator) => {
             emulator.step();
+            let state = emulator.get_state();
+            
+            // Update CPU metrics
+            update_cpu_registers(&id, state.a, state.x, state.y, state.pc, state.sp, state.status);
+            
             let response = ApiResponse::success(EmulatorState {
                 id: id.clone(),
-                cpu: emulator.get_state(),
+                cpu: state,
             });
             Ok(warp::reply::json(&response))
         }
@@ -340,7 +376,10 @@ async fn step_handler(id: String, emulators: EmulatorMap) -> Result<impl warp::R
             let response: ApiResponse<EmulatorState> = ApiResponse::error("Emulator not found".to_string());
             Ok(warp::reply::json(&response))
         }
-    }
+    };
+    
+    record_api_request("POST", "/emulator/:id/step", 200, timer.elapsed());
+    result
 }
 
 async fn execute_handler(id: String, request: ExecuteSteps, emulators: EmulatorMap) -> Result<impl warp::Reply, warp::Rejection> {
@@ -427,16 +466,46 @@ async fn list_emulators_handler(emulators: EmulatorMap) -> Result<impl warp::Rep
 }
 
 async fn delete_emulator_handler(id: String, emulators: EmulatorMap) -> Result<impl warp::Reply, warp::Rejection> {
+    let timer = Timer::new();
     let mut emulators_lock = emulators.lock().unwrap();
     
-    match emulators_lock.remove(&id) {
+    let result = match emulators_lock.remove(&id) {
         Some(_) => {
+            set_active_emulators(emulators_lock.len());
             let response = ApiResponse::success(format!("Emulator {} deleted", id));
             Ok(warp::reply::json(&response))
         }
         None => {
             let response: ApiResponse<String> = ApiResponse::error("Emulator not found".to_string());
             Ok(warp::reply::json(&response))
+        }
+    };
+    
+    record_api_request("DELETE", "/emulator/:id", 200, timer.elapsed());
+    result
+}
+
+async fn metrics_handler() -> Result<impl warp::Reply, warp::Rejection> {
+    let timer = Timer::new();
+    let encoder = prometheus::TextEncoder::new();
+    let metric_families = REGISTRY.gather();
+    
+    match encoder.encode_to_string(&metric_families) {
+        Ok(metrics_text) => {
+            record_api_request("GET", "/metrics", 200, timer.elapsed());
+            Ok(warp::reply::with_header(
+                metrics_text,
+                "content-type",
+                "text/plain; version=0.0.4",
+            ))
+        }
+        Err(_) => {
+            record_api_request("GET", "/metrics", 500, timer.elapsed());
+            Ok(warp::reply::with_header(
+                "Error encoding metrics".to_string(),
+                "content-type",
+                "text/plain",
+            ))
         }
     }
 }
