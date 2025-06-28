@@ -237,6 +237,53 @@ impl CPU {
             // BRK - Break
             0x00 => self.brk(memory),
             
+            // Flag manipulation instructions
+            // CLC - Clear Carry Flag
+            0x18 => self.clc(),
+            
+            // SEC - Set Carry Flag
+            0x38 => self.sec(),
+            
+            // CLI - Clear Interrupt Disable
+            0x58 => self.cli(),
+            
+            // SEI - Set Interrupt Disable
+            0x78 => self.sei(),
+            
+            // CLD - Clear Decimal Mode
+            0xD8 => self.cld(),
+            
+            // SED - Set Decimal Mode
+            0xF8 => self.sed(),
+            
+            // CLV - Clear Overflow Flag
+            0xB8 => self.clv(),
+            
+            // Branch instructions
+            // BCC - Branch if Carry Clear
+            0x90 => self.bcc(memory),
+            
+            // BCS - Branch if Carry Set
+            0xB0 => self.bcs(memory),
+            
+            // BEQ - Branch if Equal (Zero Set)
+            0xF0 => self.beq(memory),
+            
+            // BNE - Branch if Not Equal (Zero Clear)
+            0xD0 => self.bne(memory),
+            
+            // BMI - Branch if Minus (Negative Set)
+            0x30 => self.bmi(memory),
+            
+            // BPL - Branch if Plus (Negative Clear)
+            0x10 => self.bpl(memory),
+            
+            // BVC - Branch if Overflow Clear
+            0x50 => self.bvc(memory),
+            
+            // BVS - Branch if Overflow Set
+            0x70 => self.bvs(memory),
+            
             // NOP - No Operation
             0xEA => self.nop(),
             
@@ -1055,6 +1102,82 @@ impl CPU {
         let low = self.pop(memory) as u16;
         let high = self.pop(memory) as u16;
         (high << 8) | low
+    }
+    
+    // Flag manipulation instructions
+    fn clc(&mut self) {
+        self.set_flag(CARRY_FLAG, false);
+    }
+    
+    fn sec(&mut self) {
+        self.set_flag(CARRY_FLAG, true);
+    }
+    
+    fn cli(&mut self) {
+        self.set_flag(INTERRUPT_DISABLE, false);
+    }
+    
+    fn sei(&mut self) {
+        self.set_flag(INTERRUPT_DISABLE, true);
+    }
+    
+    fn cld(&mut self) {
+        self.set_flag(DECIMAL_MODE, false);
+    }
+    
+    fn sed(&mut self) {
+        self.set_flag(DECIMAL_MODE, true);
+    }
+    
+    fn clv(&mut self) {
+        self.set_flag(OVERFLOW_FLAG, false);
+    }
+    
+    // Branch instructions
+    fn branch_if(&mut self, memory: &Memory, condition: bool) {
+        let offset = memory.read(self.pc) as i8;
+        self.pc = self.pc.wrapping_add(1);
+        
+        if condition {
+            let target = if offset >= 0 {
+                self.pc.wrapping_add(offset as u16)
+            } else {
+                self.pc.wrapping_sub((-offset) as u16)
+            };
+            self.pc = target;
+        }
+    }
+    
+    fn bcc(&mut self, memory: &Memory) {
+        self.branch_if(memory, !self.get_flag(CARRY_FLAG));
+    }
+    
+    fn bcs(&mut self, memory: &Memory) {
+        self.branch_if(memory, self.get_flag(CARRY_FLAG));
+    }
+    
+    fn beq(&mut self, memory: &Memory) {
+        self.branch_if(memory, self.get_flag(ZERO_FLAG));
+    }
+    
+    fn bne(&mut self, memory: &Memory) {
+        self.branch_if(memory, !self.get_flag(ZERO_FLAG));
+    }
+    
+    fn bmi(&mut self, memory: &Memory) {
+        self.branch_if(memory, self.get_flag(NEGATIVE_FLAG));
+    }
+    
+    fn bpl(&mut self, memory: &Memory) {
+        self.branch_if(memory, !self.get_flag(NEGATIVE_FLAG));
+    }
+    
+    fn bvc(&mut self, memory: &Memory) {
+        self.branch_if(memory, !self.get_flag(OVERFLOW_FLAG));
+    }
+    
+    fn bvs(&mut self, memory: &Memory) {
+        self.branch_if(memory, self.get_flag(OVERFLOW_FLAG));
     }
 }
 
